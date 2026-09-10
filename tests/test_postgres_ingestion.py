@@ -1,8 +1,10 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import func, select
 
+from job_automation.application.ingestion import FetchedJob, IngestJobs
 from job_automation.domain.jobs import IngestionRun, NormalizedJobObservation
 from job_automation.infrastructure.ingestion import SqlAlchemyIngestionUnitOfWork
 from job_automation.infrastructure.models import (
@@ -138,3 +140,43 @@ async def test_ingestion_run_store_persists_transition(session: object) -> None:
     assert model is not None
     assert model.status == "succeeded"
     assert model.fetched_count == 3
+
+
+async def test_greenhouse_fetched_job_reaches_tables_through_use_case(
+    session: object,
+) -> None:
+    observed_at = datetime(2026, 1, 4, tzinfo=UTC)
+    observation = replace(
+        make_observation(observed_at=observed_at), source="greenhouse"
+    )
+
+    class GreenhouseFixture:
+        async def fetch(self, fetched_at: datetime) -> list[FetchedJob]:
+            return [FetchedJob(observation, {"id": 1, "source": "fixture"})]
+
+    result = await IngestJobs(
+        GreenhouseFixture(),
+        lambda: SqlAlchemyIngestionUnitOfWork(session),  # type: ignore[arg-type]
+        lambda: observed_at,
+        "greenhouse",
+    ).execute()
+    assert result.fetched_count == 1
+    assert result.created_count == 1
+    job = await session.scalar(  # type: ignore[attr-defined]
+        select(JobModel).where(JobModel.source_job_id == "job-1")
+    )
+    assert job is not None
+    assert job.company == "Acme"
+
+
+async def test_board_identity_prevents_same_job_id_collision(session: object) -> None:
+    first = replace(make_observation(), source="greenhouse:first-board")
+    second = replace(make_observation(), source="greenhouse:second-board")
+    async with SqlAlchemyIngestionUnitOfWork(session) as work:  # type: ignore[arg-type]
+        assert await work.observations.record(first, {"board": "first"}) == "created"
+    async with SqlAlchemyIngestionUnitOfWork(session) as work:  # type: ignore[arg-type]
+        assert await work.observations.record(second, {"board": "second"}) == "created"
+    count = await session.scalar(  # type: ignore[attr-defined]
+        select(func.count()).select_from(JobModel)
+    )
+    assert count == 2

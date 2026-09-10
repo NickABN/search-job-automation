@@ -131,7 +131,16 @@ class IngestionRun:
             unchanged,
         )
 
-    def fail(self, finished_at: datetime, error_summary: str) -> IngestionRun:
+    def fail(
+        self,
+        finished_at: datetime,
+        error_summary: str,
+        *,
+        fetched: int | None = None,
+        created: int | None = None,
+        updated: int | None = None,
+        unchanged: int | None = None,
+    ) -> IngestionRun:
         if self.status is not IngestionRunStatus.RUNNING:
             raise ValueError("only running ingestion runs can fail")
         return IngestionRun(
@@ -139,10 +148,10 @@ class IngestionRun:
             self.started_at,
             finished_at,
             IngestionRunStatus.FAILED,
-            self.fetched_count,
-            self.created_count,
-            self.updated_count,
-            self.unchanged_count,
+            self.fetched_count if fetched is None else fetched,
+            self.created_count if created is None else created,
+            self.updated_count if updated is None else updated,
+            self.unchanged_count if unchanged is None else unchanged,
             error_summary[:1000],
         )
 

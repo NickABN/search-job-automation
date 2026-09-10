@@ -1,0 +1,15 @@
+{
+  "jobs": [
+    {
+      "id": 123,
+      "title": "Senior <Engineer>",
+      "updated_at": "2026-01-02T03:04:05Z",
+      "location": {"name": "Remote"},
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/123",
+      "content": "<p>Build &amp; ship.</p><p>Line<br>two</p>",
+      "departments": [{"id": 1, "name": "Engineering"}],
+      "offices": []
+    }
+  ],
+  "meta": {"total": 1}
+}
