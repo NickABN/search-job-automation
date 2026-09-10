@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 
 
@@ -409,3 +409,168 @@ def _salary(text: str) -> SalaryEvidence:
     )
 
 
+def _english_points(requirement: str | None, candidate_level: str) -> int:
+    if requirement in ("native", "c2"):
+        return 0
+    if requirement is None:
+        return 5
+    candidate_rank = _ENGLISH_ORDER[candidate_level]
+    requirement_rank = _ENGLISH_ORDER[requirement.upper()]
+    return 5 if requirement_rank <= candidate_rank else 2
+
+
+class RankingPolicy:
+    def __init__(self, profile: RankingProfile) -> None:
+        self.profile = profile
+
+    def evaluate(self, job: JobListing, now: datetime) -> RankingEvaluation:
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("now must be timezone-aware")
+        c = classify(job)
+        exclusions: list[str] = []
+        if c.seniority in (
+            Seniority.INTERN,
+            Seniority.STAFF,
+            Seniority.PRINCIPAL,
+            Seniority.MANAGER,
+            Seniority.DIRECTOR,
+        ):
+            exclusions.append(f"Excluded seniority: {c.seniority.value}.")
+        if c.years_required is not None and c.years_required >= 6:
+            exclusions.append("Explicit requirement of 6 or more years.")
+        if c.english_requirement in ("native", "c2"):
+            exclusions.append("Native or C2 English is mandatory.")
+        if c.role_family is RoleFamily.OTHER:
+            exclusions.append("Role family is outside the supported ranking scope.")
+        elif (
+            c.role_family not in self.profile.role_families
+            and c.role_family is not RoleFamily.DATA_AI
+        ):
+            exclusions.append("Role family is outside the configured target roles.")
+        location = (job.location_text or "").casefold()
+        if c.work_model is WorkModel.ONSITE and not any(
+            _has_phrase(location, x) for x in self.profile.allowed_onsite_hybrid_cities
+        ):
+            exclusions.append("Onsite location is outside the configured cities.")
+        remote_restriction_text = f"{location} {job.description.casefold()}"
+        anywhere_restriction = re.search(
+            r"\banywhere\s+in\s+([a-z][a-z\s-]*)", remote_restriction_text
+        )
+        restriction_area = anywhere_restriction.group(1) if anywhere_restriction else ""
+        restricted_anywhere = any(
+            _has_phrase(restriction_area, country)
+            for country in ("united states", "ireland", "canada")
+        )
+        if restricted_anywhere:
+            exclusions.append("Location is explicitly restricted outside Mexico.")
+        if c.work_model is WorkModel.REMOTE and any(
+            x in remote_restriction_text
+            for x in (
+                "us only",
+                "u.s. only",
+                "united states only",
+                "must be located in the us",
+                "only available in the united states",
+            )
+        ):
+            exclusions.append("Remote role explicitly unavailable in Mexico.")
+        if (
+            c.salary.maximum_monthly_mxn is not None
+            and c.salary.maximum_monthly_mxn < self.profile.target_monthly_mxn
+        ):
+            exclusions.append(
+                "Explicit MXN maximum is below the configured monthly target."
+            )
+        role_points = (
+            ROLE_MAX["role"]
+            if c.role_family in self.profile.role_families
+            else DATA_AI_SECONDARY_POINTS
+            if c.role_family is RoleFamily.DATA_AI
+            else 0
+        )
+        target_skill_count = len(set(c.matched_skills) & set(self.profile.skills))
+        skill_points = (
+            0 if target_skill_count == 0 else 15 if target_skill_count == 1 else 25
+        )
+        geo_points = (
+            20
+            if c.work_model is WorkModel.REMOTE
+            else 15
+            if c.work_model is WorkModel.HYBRID
+            and any(
+                _has_phrase(location, x)
+                for x in self.profile.allowed_onsite_hybrid_cities
+            )
+            else 10
+            if c.work_model is WorkModel.UNKNOWN
+            else 20
+            if any(
+                _has_phrase(location, x)
+                for x in self.profile.allowed_onsite_hybrid_cities
+            )
+            else 0
+        )
+        exp_points = (
+            10
+            if c.seniority in (Seniority.JUNIOR, Seniority.MID, Seniority.UNKNOWN)
+            and (c.years_required is None or c.years_required <= 3)
+            else 5
+            if c.seniority is Seniority.SENIOR or (c.years_required or 0) in (4, 5)
+            else 0
+        )
+        comp_points = (
+            5
+            if c.salary.maximum_monthly_mxn is None
+            else 10
+            if c.salary.minimum_monthly_mxn is not None
+            and c.salary.minimum_monthly_mxn >= self.profile.target_monthly_mxn
+            else 7
+        )
+        english_points = _english_points(
+            c.english_requirement, self.profile.english_level
+        )
+        date = job.published_at or job.source_updated_at
+        recency_points = (
+            5
+            if date is not None and date <= now and now - date <= timedelta(days=30)
+            else 3
+            if date is not None and date <= now and now - date <= timedelta(days=90)
+            else 0
+        )
+        factors = tuple(
+            FactorScore(name, points, ROLE_MAX[name], reason)
+            for name, points, reason in (
+                ("role", role_points, f"Role family: {c.role_family.value}."),
+                (
+                    "skills",
+                    skill_points,
+                    f"Matched skills: {', '.join(c.matched_skills) or 'none'}.",
+                ),
+                ("geography", geo_points, f"Work model: {c.work_model.value}."),
+                ("experience", exp_points, f"Seniority: {c.seniority.value}."),
+                ("compensation", comp_points, c.salary.reason),
+                (
+                    "english",
+                    english_points,
+                    f"English requirement: {c.english_requirement or 'not stated'}.",
+                ),
+                (
+                    "recency",
+                    recency_points,
+                    "Published or updated recently."
+                    if recency_points
+                    else "Recency is unknown or old.",
+                ),
+            )
+        )
+        return RankingEvaluation(
+            not exclusions,
+            sum(f.points for f in factors),
+            c,
+            factors,
+            tuple(f.reason for f in factors),
+            tuple(exclusions),
+            now,
+            self.profile.version,
+            self.profile.identifier,
+        )
