@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose a feature with enough context for review and implementation planning.
+title: "[Feature]: "
+labels:
+  - type:feature
+body:
+  - type: textarea
+    id: problem-outcome
+    attributes:
+      label: Problem and intended outcome
+      description: What problem should this solve, who is affected, and what outcome should improve?
+      placeholder: Describe the current problem and the measurable or observable outcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior or approach that would address the problem.
+      placeholder: Explain the expected user-facing or system behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope-acceptance
+    attributes:
+      label: Scope and acceptance criteria
+      description: Define what is included and list conditions that demonstrate completion.
+      placeholder: |
+        In scope:
+        - ...
+
+        Acceptance criteria:
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification-evidence
+    attributes:
+      label: Verification evidence
+      description: Provide relevant reproduction steps, examples, data, links, or evidence supporting the request.
+      placeholder: Include concrete examples or links where available.
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks-non-goals
+    attributes:
+      label: Risks and non-goals
+      description: Identify likely risks, constraints, dependencies, and outcomes this request does not need to address.
+      placeholder: Describe known risks and explicitly out-of-scope behavior.
+    validations:
+      required: true
