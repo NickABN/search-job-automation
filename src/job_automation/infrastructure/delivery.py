@@ -115,10 +115,6 @@ class SqlAlchemyDeliveryStore:
         await self.session.flush()
         return _part(model, str(attempt.id))
 
-    async def commit_claim(self) -> None:
-        """Commit only the prepared claim before control leaves for the provider."""
-        await self.session.commit()
-
     async def mark_sent(
         self, part: DeliveryPart, provider_message_id: str, sent_at: datetime
     ) -> None:
@@ -181,6 +177,40 @@ class SqlAlchemyDeliveryUnitOfWork:
     async def __aenter__(self) -> "SqlAlchemyDeliveryUnitOfWork":
         await self.session.begin()
         return self
+
+    async def claim_digest_sending(
+        self, digest: JobDigest, changed_at: datetime
+    ) -> DigestStatus | None:
+        return await self.delivery.claim_digest_sending(digest, changed_at)
+
+    async def prepare_parts(
+        self, digest: JobDigest, parts: Sequence[str]
+    ) -> Sequence[DeliveryPart]:
+        return await self.delivery.prepare_parts(digest, parts)
+
+    async def claim_sending(
+        self, part: DeliveryPart, attempted_at: datetime
+    ) -> DeliveryPart | None:
+        return await self.delivery.claim_sending(part, attempted_at)
+
+    async def mark_sent(
+        self, part: DeliveryPart, provider_message_id: str, sent_at: datetime
+    ) -> None:
+        await self.delivery.mark_sent(part, provider_message_id, sent_at)
+
+    async def mark_failed(
+        self,
+        part: DeliveryPart,
+        state: DeliveryState,
+        error_category: str,
+        failed_at: datetime,
+    ) -> None:
+        await self.delivery.mark_failed(part, state, error_category, failed_at)
+
+    async def mark_digest_state(
+        self, digest: JobDigest, state: DigestStatus, changed_at: datetime
+    ) -> None:
+        await self.delivery.mark_digest_state(digest, state, changed_at)
 
     async def __aexit__(self, exc_type: object, exc: object, traceback: object) -> None:
         if exc_type is None:

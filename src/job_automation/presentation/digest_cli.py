@@ -11,7 +11,7 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 from job_automation.application.digests import DigestUnitOfWork, PrepareDigest
-from job_automation.application.notifications import DeliverDigest
+from job_automation.application.notifications import DeliverDigest, DeliveryTransaction
 from job_automation.config import get_settings
 from job_automation.domain.digests import DigestSlot
 from job_automation.domain.jobs import utc_now
@@ -61,10 +61,15 @@ async def _run(args: argparse.Namespace) -> int:
         gateway = TelegramGateway(
             settings.telegram_bot_token, settings.telegram_chat_id
         )
-        async with SqlAlchemyDeliveryUnitOfWork(database.session_factory()) as work:
-            result = await DeliverDigest(
-                work.delivery, gateway, utc_now, render_digest
-            ).execute(digest)
+        result = await DeliverDigest(
+            lambda: cast(
+                DeliveryTransaction,
+                SqlAlchemyDeliveryUnitOfWork(database.session_factory()),
+            ),
+            gateway,
+            utc_now,
+            render_digest,
+        ).execute(digest)
         print(
             f"digest status={result.value} slot={slot.value} "
             f"date={local_date.isoformat()} items={len(digest.items)}"

@@ -110,6 +110,24 @@ async def test_attempt_is_persisted_and_reconciled(database: Database) -> None:
         assert attempt.completed_at == NOW
 
 
+async def test_repository_claim_does_not_commit_caller_transaction(
+    database: Database,
+) -> None:
+    value = await create_digest(database)
+    async with database.session() as session:
+        await SqlAlchemyDeliveryStore(session).prepare_parts(value, ("part",))
+        await session.commit()
+    async with database.session() as session:
+        store = SqlAlchemyDeliveryStore(session)
+        part = (await store.prepare_parts(value, ("part",)))[0]
+        claimed = await store.claim_sending(part, NOW)
+        assert claimed is not None
+        async with database.session() as observer:
+            persisted = await observer.scalar(select(JobDigestDeliveryPartModel))
+            assert persisted is not None and persisted.state == "pending"
+        await session.rollback()
+
+
 async def test_concurrent_claims_only_one_sender_wins(database: Database) -> None:
     value = await create_digest(database)
     async with database.session() as session:
@@ -164,10 +182,12 @@ async def test_gateway_observes_committed_claim_before_dispatch(
                 observed.append((digest_row.status, part_row.state, attempt_row.state))
             return "42"
 
-    async with SqlAlchemyDeliveryUnitOfWork(database.session_factory()) as work:
-        result = await DeliverDigest(
-            work.delivery, Gateway(), lambda: NOW, lambda _: ("part",)
-        ).execute(value)
+    result = await DeliverDigest(
+        lambda: SqlAlchemyDeliveryUnitOfWork(database.session_factory()),
+        Gateway(),
+        lambda: NOW,
+        lambda _: ("part",),
+    ).execute(value)
     assert result is DeliveryState.SENT
     assert observed == [("sending", "sending", "sending")]
 
@@ -185,13 +205,12 @@ async def test_crash_after_dispatch_preserves_claim_and_stops_rerun(
             raise RuntimeError("simulated process crash")
 
     with pytest.raises(RuntimeError, match="simulated process crash"):
-        async with SqlAlchemyDeliveryUnitOfWork(database.session_factory()) as work:
-            await DeliverDigest(
-                work.delivery,
-                CrashingGateway(),
-                lambda: NOW,
-                lambda _: ("part",),
-            ).execute(value)
+        await DeliverDigest(
+            lambda: SqlAlchemyDeliveryUnitOfWork(database.session_factory()),
+            CrashingGateway(),
+            lambda: NOW,
+            lambda _: ("part",),
+        ).execute(value)
 
     async with database.session() as session:
         digest_row = await session.scalar(select(JobDigestModel))
@@ -205,10 +224,12 @@ async def test_crash_after_dispatch_preserves_claim_and_stops_rerun(
         async def send(self, content: str) -> str:
             raise AssertionError("rerun must not call the gateway")
 
-    async with SqlAlchemyDeliveryUnitOfWork(database.session_factory()) as work:
-        result = await DeliverDigest(
-            work.delivery, ShouldNotSend(), lambda: NOW, lambda _: ("part",)
-        ).execute(value)
+    result = await DeliverDigest(
+        lambda: SqlAlchemyDeliveryUnitOfWork(database.session_factory()),
+        ShouldNotSend(),
+        lambda: NOW,
+        lambda _: ("part",),
+    ).execute(value)
     assert result is DeliveryState.UNCERTAIN
     assert calls == 1
 
@@ -229,10 +250,12 @@ async def test_concurrent_delivery_workers_make_at_most_one_gateway_call(
             return "42"
 
     async def worker() -> DeliveryState:
-        async with SqlAlchemyDeliveryUnitOfWork(database.session_factory()) as work:
-            return await DeliverDigest(
-                work.delivery, Gateway(), lambda: NOW, lambda _: ("part",)
-            ).execute(value)
+        return await DeliverDigest(
+            lambda: SqlAlchemyDeliveryUnitOfWork(database.session_factory()),
+            Gateway(),
+            lambda: NOW,
+            lambda _: ("part",),
+        ).execute(value)
 
     results = await asyncio.gather(worker(), worker())
     assert calls == 1

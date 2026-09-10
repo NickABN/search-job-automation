@@ -42,7 +42,6 @@ class DeliveryStore(Protocol):
     async def claim_sending(
         self, part: DeliveryPart, attempted_at: datetime
     ) -> DeliveryPart | None: ...
-    async def commit_claim(self) -> None: ...
     async def mark_sent(
         self, part: DeliveryPart, provider_message_id: str, sent_at: datetime
     ) -> None: ...
@@ -61,9 +60,16 @@ class DeliveryStore(Protocol):
     ) -> DigestStatus | None: ...
 
 
+class DeliveryTransaction(DeliveryStore, Protocol):
+    async def __aenter__(self) -> "DeliveryTransaction": ...
+    async def __aexit__(
+        self, exc_type: object, exc: object, traceback: object
+    ) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class DeliverDigest:
-    store: DeliveryStore
+    transaction_factory: Callable[[], DeliveryTransaction]
     gateway: NotificationGateway
     clock: Callable[[], datetime]
     render: Callable[[JobDigest], Sequence[str]]
@@ -77,47 +83,63 @@ class DeliverDigest:
             DigestStatus.UNCERTAIN,
         }:
             return DeliveryState(digest.status.value)
-        existing_state = await self.store.claim_digest_sending(digest, self.clock())
-        if existing_state is not None:
-            if existing_state is DigestStatus.SENT:
-                return DeliveryState.SENT
-            await self.store.mark_digest_state(
-                digest, DigestStatus.UNCERTAIN, self.clock()
+        async with self.transaction_factory() as transaction:
+            existing_state = await transaction.claim_digest_sending(
+                digest, self.clock()
             )
+            if existing_state is not None:
+                return (
+                    DeliveryState.SENT
+                    if existing_state is DigestStatus.SENT
+                    else DeliveryState.UNCERTAIN
+                )
+            parts = await transaction.prepare_parts(digest, self.render(digest))
+            marked = await self._claim_first(transaction, parts)
+        if marked is None and any(
+            part.state in {DeliveryState.SENDING, DeliveryState.UNCERTAIN}
+            for part in parts
+        ):
             return DeliveryState.UNCERTAIN
-        parts = await self.store.prepare_parts(digest, self.render(digest))
+        for part in parts:
+            if part.state is DeliveryState.SENT:
+                continue
+            if marked is None:
+                async with self.transaction_factory() as transaction:
+                    marked = await transaction.claim_sending(part, self.clock())
+                if marked is None:
+                    return DeliveryState.UNCERTAIN
+            try:
+                message_id = await self.gateway.send(marked.content)
+            except DeliveryError as error:
+                async with self.transaction_factory() as transaction:
+                    await transaction.mark_failed(
+                        marked, error.state, error.category, self.clock()
+                    )
+                    await transaction.mark_digest_state(
+                        digest,
+                        DigestStatus.UNCERTAIN
+                        if error.state is DeliveryState.UNCERTAIN
+                        else DigestStatus.FAILED,
+                        self.clock(),
+                    )
+                return error.state
+            async with self.transaction_factory() as transaction:
+                await transaction.mark_sent(marked, message_id, self.clock())
+            marked = None
+        async with self.transaction_factory() as transaction:
+            await transaction.mark_digest_state(digest, DigestStatus.SENT, self.clock())
+        return DeliveryState.SENT
+
+    async def _claim_first(
+        self, transaction: DeliveryTransaction, parts: Sequence[DeliveryPart]
+    ) -> DeliveryPart | None:
         for part in parts:
             if part.state is DeliveryState.SENT:
                 continue
             if part.state in {DeliveryState.SENDING, DeliveryState.UNCERTAIN}:
-                await self.store.mark_digest_state(
-                    digest, DigestStatus.UNCERTAIN, self.clock()
-                )
-                return DeliveryState.UNCERTAIN
-            marked = await self.store.claim_sending(part, self.clock())
-            if marked is None:
-                await self.store.mark_digest_state(
-                    digest, DigestStatus.UNCERTAIN, self.clock()
-                )
-                return DeliveryState.UNCERTAIN
-            await self.store.commit_claim()
-            try:
-                message_id = await self.gateway.send(marked.content)
-            except DeliveryError as error:
-                await self.store.mark_failed(
-                    marked, error.state, error.category, self.clock()
-                )
-                await self.store.mark_digest_state(
-                    digest,
-                    DigestStatus.UNCERTAIN
-                    if error.state is DeliveryState.UNCERTAIN
-                    else DigestStatus.FAILED,
-                    self.clock(),
-                )
-                return error.state
-            await self.store.mark_sent(marked, message_id, self.clock())
-        await self.store.mark_digest_state(digest, DigestStatus.SENT, self.clock())
-        return DeliveryState.SENT
+                return None
+            return await transaction.claim_sending(part, self.clock())
+        return None
 
 
 class DeliveryError(Exception):

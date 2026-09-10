@@ -147,8 +147,11 @@ async def test_delivery_resumes_confirmed_parts_and_stops_on_uncertain() -> None
         async def claim_sending(self, part, attempted_at):
             return part
 
-        async def commit_claim(self):
-            pass
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
 
         async def mark_sent(self, part, provider_message_id, sent_at):
             self.sent.append(part.part_index)
@@ -164,7 +167,10 @@ async def test_delivery_resumes_confirmed_parts_and_stops_on_uncertain() -> None
             raise DeliveryError(DeliveryState.UNCERTAIN, "post_dispatch_timeout")
 
     result = await DeliverDigest(
-        Store(), Gateway(), lambda: DIGEST.scheduled_at, lambda _: ("one", "two")
+        Store,
+        Gateway(),
+        lambda: DIGEST.scheduled_at,
+        lambda _: ("one", "two"),
     ).execute(DIGEST)
     assert result is DeliveryState.UNCERTAIN
 
@@ -184,6 +190,58 @@ async def test_empty_digest_is_noop_without_gateway() -> None:
         pass
 
     result = await DeliverDigest(
-        Store(), None, lambda: empty.scheduled_at, render_digest
+        Store, None, lambda: empty.scheduled_at, render_digest
     ).execute(empty)  # type: ignore[arg-type]
     assert result is DeliveryState.NOOP
+
+
+@pytest.mark.asyncio
+async def test_gateway_runs_between_closed_fresh_transactions() -> None:
+    transactions = []
+
+    class Transaction:
+        def __init__(self) -> None:
+            self.closed = False
+            self.part = DeliveryPart(DIGEST.id, 0, "part", "hash")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            self.closed = True
+
+        async def claim_digest_sending(self, digest, changed_at):
+            return None
+
+        async def prepare_parts(self, digest, parts):
+            return (self.part,)
+
+        async def claim_sending(self, part, attempted_at):
+            return part
+
+        async def mark_sent(self, part, provider_message_id, sent_at):
+            pass
+
+        async def mark_failed(self, part, state, error_category, failed_at):
+            pass
+
+        async def mark_digest_state(self, digest, state, changed_at):
+            pass
+
+    def factory():
+        transaction = Transaction()
+        transactions.append(transaction)
+        return transaction
+
+    class Gateway:
+        async def send(self, content):
+            assert transactions
+            assert all(transaction.closed for transaction in transactions)
+            return "42"
+
+    result = await DeliverDigest(
+        factory, Gateway(), lambda: DIGEST.scheduled_at, lambda _: ("part",)
+    ).execute(DIGEST)
+    assert result is DeliveryState.SENT
+    assert len(transactions) == 3
+    assert len({id(transaction) for transaction in transactions}) == 3
