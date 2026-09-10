@@ -1,9 +1,11 @@
 """SQLAlchemy mappings for the ingestion persistence boundary."""
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -140,3 +142,55 @@ class JobEvaluationModel(Base):
     evaluated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class JobDigestModel(Base):
+    __tablename__ = "job_digests"
+    __table_args__ = (
+        UniqueConstraint("local_date", "slot", name="uq_job_digests_key"),
+        Index("ix_job_digests_selection", "local_date", "status"),
+        CheckConstraint("slot IN ('morning', 'evening')", name="ck_job_digests_slot"),
+        CheckConstraint(
+            "status IN ('empty', 'prepared', 'sending', 'sent')",
+            name="ck_job_digests_status",
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    local_date: Mapped[date] = mapped_column(Date(), nullable=False)
+    slot: Mapped[str] = mapped_column(String(20), nullable=False)
+    scheduled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+
+
+class JobDigestItemModel(Base):
+    __tablename__ = "job_digest_items"
+    __table_args__ = (
+        UniqueConstraint("digest_id", "job_id", name="uq_job_digest_job"),
+        UniqueConstraint("digest_id", "item_index", name="uq_job_digest_index"),
+        Index("ix_job_digest_items_job", "job_id"),
+        CheckConstraint("score >= 0 AND score <= 100", name="ck_job_digest_item_score"),
+        CheckConstraint("item_index >= 0", name="ck_job_digest_item_index"),
+    )
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    digest_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("job_digests.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("jobs.id", ondelete="RESTRICT"), nullable=False
+    )
+    item_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    company: Mapped[str] = mapped_column(String(300), nullable=False)
+    location: Mapped[str] = mapped_column(String(500), nullable=False)
+    canonical_url: Mapped[str] = mapped_column(String(2000), nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    role_family: Mapped[str] = mapped_column(String(50), nullable=False)
+    reasons: Mapped[list[str]] = mapped_column(JSONB, nullable=False)

@@ -1,8 +1,9 @@
 # Search Job Automation
 
 This repository contains a production-shaped FastAPI service with framework-
-independent ingestion and deterministic, explainable job ranking. It stores
-normalized source observations and current evaluations safely and idempotently.
+independent ingestion, deterministic explainable ranking, and resumable job
+digests. It stores normalized source observations, current evaluations, and
+immutable digest snapshots safely and idempotently.
 
 ## Quick start
 
@@ -87,6 +88,20 @@ company name is explicit configuration because the listing API does not provide
 a reliable company field. The adapter calls the official public endpoint once
 with `content=true`, preserves each raw job JSON object, and leaves publication
 time unknown. See the [official Greenhouse Job Board API](https://docs.greenhouse.io/job-board.html).
+
+## Job digests
+
+A digest is keyed by `{local_date}:{slot}` (`morning` or `evening`) in the
+configured `America/Mexico_City` timezone. Preparation runs at most once for a
+key, selects current eligible evaluations at or above `DIGEST_MIN_SCORE` (60 by
+default), orders ties deterministically, and stores job fields and reasons as an
+immutable snapshot. Empty digests are persisted as explicit no-ops. Prepared,
+sending, and sent items are excluded from later slots, so retries resume work
+without claiming a job twice.
+
+The 09:00/18:00 scheduler and Telegram transport are intentionally deferred to
+the notification branch. All operational timestamps are UTC-aware; the local
+date and slot remain explicit database columns.
 
 ## Current non-goals
 
