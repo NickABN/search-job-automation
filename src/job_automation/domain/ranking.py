@@ -6,8 +6,6 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-
-
 class RoleFamily(StrEnum):
     BACKEND = "backend"
     FRONTEND = "frontend"
@@ -36,7 +34,18 @@ class WorkModel(StrEnum):
     UNKNOWN = "unknown"
 
 
+ROLE_MAX = {
+    "role": 25,
+    "skills": 25,
+    "geography": 20,
+    "experience": 10,
+    "compensation": 10,
+    "english": 5,
+    "recency": 5,
+}
+DATA_AI_SECONDARY_POINTS = 10
 _SUPPORTED_ENGLISH_LEVELS = frozenset(("B1", "B2", "C1", "C2", "NATIVE"))
+_ENGLISH_ORDER = {"B1": 0, "B2": 1, "C1": 2, "C2": 3, "NATIVE": 4}
 _ALIASES: dict[RoleFamily, tuple[str, ...]] = {
     RoleFamily.BACKEND: ("backend", "back end", "api engineer", "server-side"),
     RoleFamily.FRONTEND: ("frontend", "front end", "ui engineer", "web frontend"),
@@ -169,6 +178,42 @@ class JobClassification:
     years_required: int | None
     english_requirement: str | None
     salary: SalaryEvidence
+
+
+@dataclass(frozen=True, slots=True)
+class FactorScore:
+    name: str
+    points: int
+    maximum: int
+    reason: str
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.points <= self.maximum:
+            raise ValueError("factor points must be within its maximum")
+
+
+@dataclass(frozen=True, slots=True)
+class RankingEvaluation:
+    eligible: bool
+    score: int
+    classification: JobClassification
+    factors: tuple[FactorScore, ...]
+    explanations: tuple[str, ...]
+    exclusion_reasons: tuple[str, ...]
+    evaluated_at: datetime
+    policy_version: str
+    profile_identifier: str
+
+    def __post_init__(self) -> None:
+        if self.evaluated_at.tzinfo is None or self.evaluated_at.utcoffset() is None:
+            raise ValueError("evaluated_at must be timezone-aware")
+        if (
+            not 0 <= self.score <= 100
+            or sum(f.points for f in self.factors) != self.score
+        ):
+            raise ValueError("score must be 0..100 and equal factor points")
+        if sum(f.maximum for f in self.factors) != 100:
+            raise ValueError("factor maxima must sum to 100")
 
 
 def _text(job: JobListing) -> str:
@@ -320,6 +365,45 @@ def classify(job: JobListing) -> JobClassification:
         else WorkModel.UNKNOWN
     )
     return JobClassification(
-        role, seniority, work, matched, years, english,
-        SalaryEvidence(None, None, "Salary classification is deferred."),
+        role, seniority, work, matched, years, english, _salary(text)
     )
+
+
+def _salary(text: str) -> SalaryEvidence:
+    period = (
+        r"(?:per\s+month|monthly|a\s+month|/\s*month|per\s+year|"
+        r"annual|annually|a\s+year|/\s*year)"
+    )
+    pattern = re.compile(
+        r"(?:mxn|mx\$|mexican\s+pesos?)\s*\$?\s*([\d,.]+\s*k?|\$?[\d,.]+)\s*(?:-|to|–)\s*([\d,.]+\s*k?|\$?[\d,.]+)?\s*"
+        + period
+        + r"|(?:\$?[\d,.]+\s*k?)\s*(?:-|to|–)\s*(?:\$?[\d,.]+\s*k?)?\s*"
+        + period
+        + r"\s*(?:mxn|mx\$|mexican\s+pesos?)|"
+        + r"(?:mxn|mx\$|mexican\s+pesos?)\s*\$?\s*([\d,.]+\s*k?|\$?[\d,.]+)\s*"
+        + period,
+        re.I,
+    )
+    match = pattern.search(text)
+    if not match:
+        return SalaryEvidence(
+            None, None, "Salary is unknown or uses a deferred currency conversion."
+        )
+    numbers = re.findall(r"\d[\d,.]*\s*k?", match.group(0), re.I)
+    values = []
+    for number in numbers[:2]:
+        value = number.lower().replace(",", "").strip()
+        values.append(
+            int(float(value[:-1]) * 1000) if value.endswith("k") else int(float(value))
+        )
+    annual = any(x in match.group(0).casefold() for x in ("year", "annual"))
+    if annual:
+        values = [round(value / 12) for value in values]
+    return SalaryEvidence(
+        values[0] if values else None,
+        values[-1] if values else None,
+        "Explicit MXN salary normalized to monthly."
+        + (" Annual amount divided by 12." if annual else ""),
+    )
+
+

@@ -59,3 +59,19 @@ def test_listing_rejects_blank_identity(field: str) -> None:
     values[field] = " "
     with pytest.raises(ValueError):
         JobListing(**values)
+
+
+@pytest.mark.parametrize(
+    ("description", "monthly"),
+    [("MXN 30,000 monthly", 30000), ("MXN 360k annual", 30000),
+     ("MXN 25k-35k per month", 35000)],
+)
+def test_explicit_mxn_salary_is_normalized(description: str, monthly: int) -> None:
+    result = classify(job("Backend Engineer", description))
+    assert result.salary.maximum_monthly_mxn == monthly
+
+
+def test_bare_dollars_and_foreign_currency_remain_unknown() -> None:
+    for description in ("$20,000 monthly", "USD 20,000 monthly"):
+        result = classify(job("Backend Engineer", description))
+        assert result.salary.maximum_monthly_mxn is None
