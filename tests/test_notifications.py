@@ -147,6 +147,9 @@ async def test_delivery_resumes_confirmed_parts_and_stops_on_uncertain() -> None
         async def claim_sending(self, part, attempted_at):
             return part
 
+        async def commit_claim(self):
+            pass
+
         async def mark_sent(self, part, provider_message_id, sent_at):
             self.sent.append(part.part_index)
 

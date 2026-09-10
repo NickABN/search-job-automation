@@ -115,6 +115,10 @@ class SqlAlchemyDeliveryStore:
         await self.session.flush()
         return _part(model, str(attempt.id))
 
+    async def commit_claim(self) -> None:
+        """Commit only the prepared claim before control leaves for the provider."""
+        await self.session.commit()
+
     async def mark_sent(
         self, part: DeliveryPart, provider_message_id: str, sent_at: datetime
     ) -> None:

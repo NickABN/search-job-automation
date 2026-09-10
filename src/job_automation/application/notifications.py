@@ -42,6 +42,7 @@ class DeliveryStore(Protocol):
     async def claim_sending(
         self, part: DeliveryPart, attempted_at: datetime
     ) -> DeliveryPart | None: ...
+    async def commit_claim(self) -> None: ...
     async def mark_sent(
         self, part: DeliveryPart, provider_message_id: str, sent_at: datetime
     ) -> None: ...
@@ -99,6 +100,7 @@ class DeliverDigest:
                     digest, DigestStatus.UNCERTAIN, self.clock()
                 )
                 return DeliveryState.UNCERTAIN
+            await self.store.commit_claim()
             try:
                 message_id = await self.gateway.send(marked.content)
             except DeliveryError as error:
