@@ -54,7 +54,7 @@ class SqlAlchemyDigestStore:
         threshold: int,
         max_jobs: int,
     ) -> JobDigest:
-        key = f"{local_date.isoformat()}:{slot.value}"
+        key = "job-digest-selection"
         await self.session.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
             {"key": key},

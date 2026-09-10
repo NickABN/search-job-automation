@@ -4,6 +4,7 @@ from datetime import date, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -148,6 +149,11 @@ class JobDigestModel(Base):
     __table_args__ = (
         UniqueConstraint("local_date", "slot", name="uq_job_digests_key"),
         Index("ix_job_digests_selection", "local_date", "status"),
+        CheckConstraint("slot IN ('morning', 'evening')", name="ck_job_digests_slot"),
+        CheckConstraint(
+            "status IN ('empty', 'prepared', 'sending', 'sent')",
+            name="ck_job_digests_status",
+        ),
     )
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=uuid4
@@ -166,6 +172,8 @@ class JobDigestItemModel(Base):
         UniqueConstraint("digest_id", "job_id", name="uq_job_digest_job"),
         UniqueConstraint("digest_id", "item_index", name="uq_job_digest_index"),
         Index("ix_job_digest_items_job", "job_id"),
+        CheckConstraint("score >= 0 AND score <= 100", name="ck_job_digest_item_score"),
+        CheckConstraint("item_index >= 0", name="ck_job_digest_item_index"),
     )
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=uuid4

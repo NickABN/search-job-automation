@@ -29,9 +29,7 @@ def upgrade() -> None:
             name="ck_job_digests_status",
         ),
     )
-    op.create_index(
-        "ix_job_digests_selection", "job_digests", ["local_date", "status"]
-    )
+    op.create_index("ix_job_digests_selection", "job_digests", ["local_date", "status"])
     op.create_table(
         "job_digest_items",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -60,6 +58,7 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "score >= 0 AND score <= 100", name="ck_job_digest_item_score"
         ),
+        sa.CheckConstraint("item_index >= 0", name="ck_job_digest_item_index"),
     )
     op.create_index("ix_job_digest_items_job", "job_digest_items", ["job_id"])
 
