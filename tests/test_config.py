@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -35,6 +36,16 @@ def test_settings_overrides_reach_domain_profile() -> None:
     assert profile.skills == ("python",)
     assert profile.english_level == "C1"
     assert profile.allowed_onsite_hybrid_cities == ("merida",)
+
+
+def test_default_digest_timezone_produces_aware_datetime() -> None:
+    settings = Settings(_env_file=None)
+
+    scheduled_at = datetime.now(ZoneInfo(settings.digest_timezone))
+
+    assert settings.digest_timezone == "America/Mexico_City"
+    assert scheduled_at.tzinfo is not None
+    assert scheduled_at.utcoffset() is not None
 
 
 def test_environment_profile_values_reach_domain_profile(
