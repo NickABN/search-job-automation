@@ -320,8 +320,13 @@ async def test_application_saves_and_orders_top_eligible_results() -> None:
             return [
                 job("Backend Engineer"),
                 JobListing(
-                    "id-2", "Backend Engineer", "Acme", "Python",
-                    "Remote Mexico", NOW, None,
+                    "id-2",
+                    "Backend Engineer",
+                    "Acme",
+                    "Python",
+                    "Remote Mexico",
+                    NOW,
+                    None,
                 ),
             ]
 
