@@ -1,0 +1,70 @@
+# Search Job Automation
+
+This repository contains a production-shaped FastAPI service with a
+framework-independent ingestion domain and PostgreSQL persistence foundation.
+It stores normalized source observations safely and idempotently, ready for
+future source adapters.
+
+## Quick start
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -e ".[dev]"
+Copy-Item .env.example .env
+docker compose up -d db
+docker compose build app
+docker compose run --rm app alembic upgrade head
+docker compose up -d app
+```
+
+Check `GET /health` for liveness and `GET /ready` for PostgreSQL readiness.
+Stop local services with `docker compose down`.
+
+## Architecture boundaries
+
+| Boundary | Responsibility |
+| --- | --- |
+| `domain` | Immutable normalized-job and ingestion-run concepts with invariants |
+| `application` | Cohesive use cases and dependency-inverting ports; no framework or database code |
+| `infrastructure` | SQLAlchemy async mappings, transaction-owning unit of work, and readiness adapter |
+| `presentation` | FastAPI composition root and HTTP endpoints |
+
+The application factory is the composition root. Tests inject a fake readiness
+port, while production composes the SQLAlchemy adapter and disposes the engine
+through FastAPI lifespan shutdown.
+
+## Commands
+
+```powershell
+.venv\Scripts\python.exe -m ruff check .
+.venv\Scripts\python.exe -m mypy src
+.venv\Scripts\python.exe -m pytest
+docker compose config
+docker compose --profile test run --rm integration-tests
+```
+
+From a clean database volume, that exact command waits for healthy PostgreSQL,
+applies `alembic upgrade head`, and then runs all PostgreSQL integration tests.
+The integration harness runs inside the Compose network. This is intentional:
+Windows-host asyncpg connections to the published PostgreSQL port are not a
+reliable verification path in this environment.
+
+## Data model
+
+`sources` identifies an adapter without storing credentials. `jobs` has one
+row per `(source, source_job_id)`. `job_observations` preserves each changed
+normalized payload as JSONB and uses `(job_id, content_hash)` for conservative
+idempotency; repeated observations update `last_seen_at`. `ingestion_runs`
+tracks lifecycle and bounded counters/errors. Alembic owns all schema changes;
+the application never calls `create_all()`.
+
+## Environment configuration
+
+Copy `.env.example` to `.env`, then set `DATABASE_URL` to an
+`postgresql+asyncpg` URL. Compose supplies the same setting to the app using
+its PostgreSQL service. Never commit `.env` or real credentials.
+
+## Current non-goals
+
+This work unit does not include source adapters, cross-source fuzzy
+deduplication, ranking/classification, scheduling, Telegram, or a frontend.

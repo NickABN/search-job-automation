@@ -1,0 +1,1 @@
+"""Search job automation service."""
