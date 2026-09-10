@@ -50,3 +50,4 @@ markers = ["integration: requires PostgreSQL"]
 
 [project.scripts]
 greenhouse-ingest = "job_automation.presentation.cli:main"
+rank-jobs = "job_automation.presentation.ranking_cli:main"
