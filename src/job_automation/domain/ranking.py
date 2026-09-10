@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+
+
 class RoleFamily(StrEnum):
     BACKEND = "backend"
     FRONTEND = "frontend"
