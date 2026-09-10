@@ -110,3 +110,33 @@ class IngestionRunModel(Base):
     updated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     unchanged_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_summary: Mapped[str | None] = mapped_column(String(1000))
+
+
+class JobEvaluationModel(Base):
+    __tablename__ = "job_evaluations"
+    __table_args__ = (
+        UniqueConstraint(
+            "job_id",
+            "profile_identifier",
+            "policy_version",
+            name="uq_job_evaluations_current",
+        ),
+        Index("ix_job_evaluations_eligible_score", "eligible", "score"),
+    )
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    job_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    profile_identifier: Mapped[str] = mapped_column(String(200), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    eligible: Mapped[bool] = mapped_column(nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    classification: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    factors: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
+    explanations: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    exclusion_reasons: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

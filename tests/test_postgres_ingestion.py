@@ -17,7 +17,7 @@ pytestmark = pytest.mark.integration
 
 
 def make_observation(
-    description: str, observed_at: datetime | None = None
+    description: str = "Build things", observed_at: datetime | None = None
 ) -> NormalizedJobObservation:
     return NormalizedJobObservation(
         source="integration",
@@ -38,6 +38,7 @@ def make_observation(
 async def session(database: object):
     async with database.session() as db_session:  # type: ignore[attr-defined]
         await db_session.execute(JobObservationModel.__table__.delete())
+        await db_session.execute(IngestionRunModel.__table__.delete())
         await db_session.execute(JobModel.__table__.delete())
         await db_session.commit()
         yield db_session
