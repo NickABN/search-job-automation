@@ -64,7 +64,22 @@ Copy `.env.example` to `.env`, then set `DATABASE_URL` to an
 `postgresql+asyncpg` URL. Compose supplies the same setting to the app using
 its PostgreSQL service. Never commit `.env` or real credentials.
 
+## Manual Greenhouse ingestion
+
+After the database is running and migrated, ingest one public board:
+
+```powershell
+.venv\Scripts\python.exe -m job_automation.presentation.cli --board-token greenhouse --company "Greenhouse"
+```
+
+`--board-token` is a validated Greenhouse board identifier, not a secret. The
+company name is explicit configuration because the listing API does not provide
+a reliable company field. The adapter calls the official public endpoint once
+with `content=true`, preserves each raw job JSON object, and leaves publication
+time unknown. See the [official Greenhouse Job Board API](https://docs.greenhouse.io/job-board.html).
+
 ## Current non-goals
 
-This work unit does not include source adapters, cross-source fuzzy
-deduplication, ranking/classification, scheduling, Telegram, or a frontend.
+This work unit does not include Lever, cross-source fuzzy deduplication,
+ranking/classification, scheduling, Telegram, automatic applications, or a
+frontend.
