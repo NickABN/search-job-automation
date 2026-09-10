@@ -100,8 +100,14 @@ sending, and sent items are excluded from later slots, so retries resume work
 without claiming a job twice.
 
 The 09:00/18:00 scheduler and Telegram transport are intentionally deferred to
-the notification branch. All operational timestamps are UTC-aware; the local
-date and slot remain explicit database columns.
+the notification branch. Before a scheduler exists, delivery is explicit:
+`.venv\\Scripts\\send-job-digest.exe --slot morning`. Telegram uses the
+official Bot API `sendMessage` endpoint and environment-only credentials. Never
+share or commit the bot token. Delivery is resumable for confirmed sent parts,
+but a post-dispatch timeout is deliberately marked uncertain: Telegram offers
+no caller idempotency key, so the command does not claim exactly-once delivery.
+All operational timestamps are UTC-aware; the local date and slot remain
+explicit database columns.
 
 ## Current non-goals
 

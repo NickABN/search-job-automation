@@ -194,3 +194,48 @@ class JobDigestItemModel(Base):
     score: Mapped[int] = mapped_column(Integer, nullable=False)
     role_family: Mapped[str] = mapped_column(String(50), nullable=False)
     reasons: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+
+
+class JobDigestDeliveryPartModel(Base):
+    __tablename__ = "job_digest_delivery_parts"
+    __table_args__ = (
+        UniqueConstraint("digest_id", "part_index", name="uq_digest_delivery_part"),
+    )
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    digest_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("job_digests.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    part_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(30), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    provider_message_id: Mapped[str | None] = mapped_column(String(100))
+    error_category: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class JobDigestDeliveryAttemptModel(Base):
+    __tablename__ = "job_digest_delivery_attempts"
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    part_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("job_digest_delivery_parts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    state: Mapped[str] = mapped_column(String(30), nullable=False)
+    error_category: Mapped[str | None] = mapped_column(String(100))

@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     digest_min_score: int = 60
     digest_max_jobs: int = 20
     digest_timezone: str = "America/Mexico_City"
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
     ranking_target_role_families: tuple[str, ...] = (
         "backend",
         "frontend",
