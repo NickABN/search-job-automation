@@ -1,9 +1,8 @@
 # Search Job Automation
 
-This repository contains a production-shaped FastAPI service with a
-framework-independent ingestion domain and PostgreSQL persistence foundation.
-It stores normalized source observations safely and idempotently, ready for
-future source adapters.
+This repository contains a production-shaped FastAPI service with framework-
+independent ingestion and deterministic, explainable job ranking. It stores
+normalized source observations and current evaluations safely and idempotently.
 
 ## Quick start
 
@@ -62,7 +61,18 @@ the application never calls `create_all()`.
 
 Copy `.env.example` to `.env`, then set `DATABASE_URL` to an
 `postgresql+asyncpg` URL. Compose supplies the same setting to the app using
-its PostgreSQL service. Never commit `.env` or real credentials.
+its PostgreSQL service. Ranking profile values use Pydantic JSON arrays for
+role families, skills, and allowed onsite/hybrid cities:
+
+```dotenv
+RANKING_TARGET_ROLE_FAMILIES=["backend","frontend","full_stack","mobile"]
+RANKING_TARGET_SKILLS=["Python","FastAPI","Java","Spring Boot","Flutter","React","Vue"]
+RANKING_ENGLISH_LEVEL=B2
+RANKING_ALLOWED_CITIES=["Morelia","Guadalajara","Queretaro"]
+```
+
+Never commit `.env` or real credentials. Profile values are validated before
+ranking; skills and city names are normalized case-insensitively.
 
 ## Manual Greenhouse ingestion
 
@@ -80,6 +90,36 @@ time unknown. See the [official Greenhouse Job Board API](https://docs.greenhous
 
 ## Current non-goals
 
-This work unit does not include Lever, cross-source fuzzy deduplication,
-ranking/classification, scheduling, Telegram, automatic applications, or a
-frontend.
+## Ranking jobs
+
+After ingestion and migration, rank persisted jobs without network access:
+
+```powershell
+.venv\Scripts\rank-jobs.exe --limit 20
+```
+
+The limit is bounded to 1--1000. Output contains only score, title, company,
+location, and concise stable reasons.
+
+| Factor | Maximum |
+| --- | ---: |
+| Role-family match | 25 |
+| Skills/stack match | 25 |
+| Geographic/work-model fit | 20 |
+| Experience/seniority fit | 10 |
+| Compensation | 10 |
+| English requirement | 5 |
+| Recency | 5 |
+
+Data/AI is a secondary affinity: when it is not a configured primary role, it
+receives partial role credit rather than the full 25 points. English scoring is
+relative to the configured candidate CEFR level; C1 is penalized for a B2
+candidate, while native/C2 requirements remain hard exclusions.
+
+Salary is normalized only for explicit MXN monthly or annual evidence; foreign
+currencies and bare-dollar values remain neutral until a reviewed conversion
+provider is added. Unknown location, salary, English, and recency are not hard
+exclusions. No LLM, embeddings, vector database, scheduler, Telegram,
+automatic applications, currency-rate provider, or frontend is included.
+
+This work unit does not include Lever or cross-source fuzzy deduplication.

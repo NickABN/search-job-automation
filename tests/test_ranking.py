@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from job_automation.application.ranking import RankJobs
 from job_automation.domain.ranking import (
     JobListing,
     RankingPolicy,
@@ -305,3 +306,45 @@ def test_factor_invariants_and_stable_reasons() -> None:
     assert sum(f.points for f in evaluation.factors) == evaluation.score
     assert tuple(f.reason for f in evaluation.factors) == evaluation.explanations
     assert [f.maximum for f in evaluation.factors] == [25, 25, 20, 10, 10, 5, 5]
+
+
+@pytest.mark.asyncio
+async def test_application_saves_and_orders_top_eligible_results() -> None:
+    class Work:
+        def __init__(self) -> None:
+            self.jobs = self
+            self.evaluations = self
+            self.saved: list[str] = []
+
+        async def list_jobs(self) -> list[JobListing]:
+            return [
+                job("Backend Engineer"),
+                JobListing(
+                    "id-2", "Backend Engineer", "Acme", "Python",
+                    "Remote Mexico", NOW, None,
+                ),
+            ]
+
+        async def save_evaluation(self, job_id: str, evaluation: object) -> None:
+            self.saved.append(job_id)
+
+        async def __aenter__(self) -> "Work":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    work = Work()
+    clock_calls = 0
+
+    def clock() -> datetime:
+        nonlocal clock_calls
+        clock_calls += 1
+        return NOW
+
+    results = await RankJobs(
+        lambda: work, RankingPolicy(RankingProfile()), clock
+    ).execute(1)
+    assert len(results) == 1
+    assert work.saved == ["id-1", "id-2"]
+    assert clock_calls == 1
