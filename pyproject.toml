@@ -53,3 +53,4 @@ markers = ["integration: requires PostgreSQL"]
 greenhouse-ingest = "job_automation.presentation.cli:main"
 rank-jobs = "job_automation.presentation.ranking_cli:main"
 send-job-digest = "job_automation.presentation.digest_cli:main"
+wait-for-database = "job_automation.presentation.readiness_cli:main"
