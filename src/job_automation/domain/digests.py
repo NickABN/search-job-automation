@@ -15,6 +15,8 @@ class DigestStatus(StrEnum):
     PREPARED = "prepared"
     SENDING = "sending"
     SENT = "sent"
+    FAILED = "failed"
+    UNCERTAIN = "uncertain"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +55,7 @@ class JobDigest:
     scheduled_at: datetime
     status: DigestStatus
     items: tuple[DigestItem, ...]
+    sent_at: datetime | None = None
 
     @property
     def idempotency_key(self) -> str:
@@ -61,6 +64,10 @@ class JobDigest:
     def __post_init__(self) -> None:
         if self.scheduled_at.tzinfo is None or self.scheduled_at.utcoffset() is None:
             raise ValueError("scheduled_at must be timezone-aware")
+        if self.sent_at is not None and (
+            self.sent_at.tzinfo is None or self.sent_at.utcoffset() is None
+        ):
+            raise ValueError("sent_at must be timezone-aware")
         ids = [item.job_id for item in self.items]
         if len(ids) != len(set(ids)):
             raise ValueError("digest items must contain unique jobs")
@@ -72,12 +79,24 @@ class JobDigest:
     def transition(self, status: DigestStatus) -> "JobDigest":
         allowed = {
             DigestStatus.PREPARED: {DigestStatus.SENDING},
-            DigestStatus.SENDING: {DigestStatus.SENT},
+            DigestStatus.SENDING: {
+                DigestStatus.SENT,
+                DigestStatus.FAILED,
+                DigestStatus.UNCERTAIN,
+            },
             DigestStatus.SENT: set(),
+            DigestStatus.FAILED: set(),
+            DigestStatus.UNCERTAIN: set(),
             DigestStatus.EMPTY: set(),
         }
         if status not in allowed[self.status]:
             raise ValueError(f"invalid digest transition {self.status} -> {status}")
         return JobDigest(
-            self.id, self.local_date, self.slot, self.scheduled_at, status, self.items
+            self.id,
+            self.local_date,
+            self.slot,
+            self.scheduled_at,
+            status,
+            self.items,
+            self.sent_at if status is not DigestStatus.SENT else self.sent_at,
         )

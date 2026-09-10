@@ -39,6 +39,7 @@ def _domain(model: JobDigestModel, items: list[JobDigestItemModel]) -> JobDigest
             )
             for item in sorted(items, key=lambda value: value.item_index)
         ),
+        model.sent_at,
     )
 
 
