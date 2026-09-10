@@ -50,6 +50,34 @@ def test_rendering_escapes_and_hash_is_stable() -> None:
     assert content_hash(parts[0]) == content_hash(parts[0])
 
 
+def test_renderer_does_not_link_unsafe_or_pathological_urls() -> None:
+    digest = JobDigest(
+        DIGEST.id,
+        DIGEST.local_date,
+        DIGEST.slot,
+        DIGEST.scheduled_at,
+        DIGEST.status,
+        (
+            DigestItem(
+                "job-1",
+                "x" * 10_000,
+                "company & <x>",
+                "remote",
+                "javascript:alert(1)",
+                80,
+                "backend",
+                ("reason & <x>",) * 20,
+            ),
+        ),
+    )
+    part = render_digest(digest)[0]
+    assert "<a " not in part
+    assert "javascript:" not in part
+    assert "&amp;" in part
+    assert len(part) <= 4096
+    assert part.count("<b>") == part.count("</b>")
+
+
 @pytest.mark.asyncio
 async def test_gateway_success_returns_message_id_without_network() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -66,6 +94,42 @@ async def test_gateway_success_returns_message_id_without_network() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gateway_retry_boundaries_are_conservative() -> None:
+    sleeps: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    responses = iter(
+        [
+            httpx.Response(
+                429,
+                headers={"Retry-After": "0"},
+                json={"ok": False},
+            ),
+            httpx.Response(503, json={"ok": False, "description": "secret body"}),
+        ]
+    )
+
+    async def handler(_: httpx.Request) -> httpx.Response:
+        return next(responses)
+
+    gateway = TelegramGateway(
+        "secret-token",
+        "chat",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        sleep=sleep,
+    )
+    with pytest.raises(DeliveryError) as error:
+        await gateway.send("safe")
+    assert error.value.state is DeliveryState.UNCERTAIN
+    assert error.value.category == "provider_5xx"
+    assert sleeps == [0]
+    assert "secret" not in str(error.value)
+    await gateway.aclose()
+
+
+@pytest.mark.asyncio
 async def test_delivery_resumes_confirmed_parts_and_stops_on_uncertain() -> None:
     class Store:
         def __init__(self) -> None:
@@ -77,7 +141,10 @@ async def test_delivery_resumes_confirmed_parts_and_stops_on_uncertain() -> None
                 DeliveryPart(digest.id, 1, parts[1], "b"),
             ]
 
-        async def mark_sending(self, part, attempted_at):
+        async def claim_digest_sending(self, digest, changed_at):
+            return None
+
+        async def claim_sending(self, part, attempted_at):
             return part
 
         async def mark_sent(self, part, provider_message_id, sent_at):
@@ -86,8 +153,8 @@ async def test_delivery_resumes_confirmed_parts_and_stops_on_uncertain() -> None
         async def mark_failed(self, part, state, error_category, failed_at):
             pass
 
-        async def mark_digest_sent(self, digest, sent_at):
-            raise AssertionError("uncertain must not complete")
+        async def mark_digest_state(self, digest, state, changed_at):
+            assert state is DigestStatus.UNCERTAIN
 
     class Gateway:
         async def send(self, content):
@@ -97,3 +164,23 @@ async def test_delivery_resumes_confirmed_parts_and_stops_on_uncertain() -> None
         Store(), Gateway(), lambda: DIGEST.scheduled_at, lambda _: ("one", "two")
     ).execute(DIGEST)
     assert result is DeliveryState.UNCERTAIN
+
+
+@pytest.mark.asyncio
+async def test_empty_digest_is_noop_without_gateway() -> None:
+    empty = JobDigest(
+        "empty",
+        date(2026, 9, 10),
+        DigestSlot.MORNING,
+        datetime(2026, 9, 10, 15, tzinfo=UTC),
+        DigestStatus.EMPTY,
+        (),
+    )
+
+    class Store:
+        pass
+
+    result = await DeliverDigest(
+        Store(), None, lambda: empty.scheduled_at, render_digest
+    ).execute(empty)  # type: ignore[arg-type]
+    assert result is DeliveryState.NOOP

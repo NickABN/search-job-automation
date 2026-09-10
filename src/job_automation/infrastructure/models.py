@@ -151,7 +151,7 @@ class JobDigestModel(Base):
         Index("ix_job_digests_selection", "local_date", "status"),
         CheckConstraint("slot IN ('morning', 'evening')", name="ck_job_digests_slot"),
         CheckConstraint(
-            "status IN ('empty', 'prepared', 'sending', 'sent')",
+            "status IN ('empty', 'prepared', 'sending', 'sent', 'failed', 'uncertain')",
             name="ck_job_digests_status",
         ),
     )
@@ -164,6 +164,7 @@ class JobDigestModel(Base):
         DateTime(timezone=True), nullable=False
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class JobDigestItemModel(Base):
@@ -200,6 +201,12 @@ class JobDigestDeliveryPartModel(Base):
     __tablename__ = "job_digest_delivery_parts"
     __table_args__ = (
         UniqueConstraint("digest_id", "part_index", name="uq_digest_delivery_part"),
+        CheckConstraint("part_index >= 0", name="ck_delivery_part_index"),
+        CheckConstraint("attempt_count >= 0", name="ck_delivery_attempt_count"),
+        CheckConstraint(
+            "state IN ('pending', 'sending', 'sent', 'permanent_failed', 'uncertain')",
+            name="ck_delivery_part_state",
+        ),
     )
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=uuid4
@@ -237,5 +244,7 @@ class JobDigestDeliveryAttemptModel(Base):
     attempted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     state: Mapped[str] = mapped_column(String(30), nullable=False)
     error_category: Mapped[str | None] = mapped_column(String(100))
+    provider_message_id: Mapped[str | None] = mapped_column(String(100))

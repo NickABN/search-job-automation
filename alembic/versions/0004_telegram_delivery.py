@@ -13,6 +13,15 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    op.drop_constraint("ck_job_digests_status", "job_digests", type_="check")
+    op.create_check_constraint(
+        "ck_job_digests_status",
+        "job_digests",
+        "status IN ('empty', 'prepared', 'sending', 'sent', 'failed', 'uncertain')",
+    )
+    op.add_column(
+        "job_digests", sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True)
+    )
     op.create_table(
         "job_digest_delivery_parts",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -36,6 +45,8 @@ def upgrade() -> None:
             "state IN ('pending', 'sending', 'sent', 'permanent_failed', 'uncertain')",
             name="ck_delivery_part_state",
         ),
+        sa.CheckConstraint("part_index >= 0", name="ck_delivery_part_index"),
+        sa.CheckConstraint("attempt_count >= 0", name="ck_delivery_attempt_count"),
     )
     op.create_table(
         "job_digest_delivery_attempts",
@@ -47,11 +58,20 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("attempted_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("state", sa.String(30), nullable=False),
         sa.Column("error_category", sa.String(100), nullable=True),
+        sa.Column("provider_message_id", sa.String(100), nullable=True),
     )
 
 
 def downgrade() -> None:
     op.drop_table("job_digest_delivery_attempts")
     op.drop_table("job_digest_delivery_parts")
+    op.drop_column("job_digests", "sent_at")
+    op.drop_constraint("ck_job_digests_status", "job_digests", type_="check")
+    op.create_check_constraint(
+        "ck_job_digests_status",
+        "job_digests",
+        "status IN ('empty', 'prepared', 'sending', 'sent')",
+    )

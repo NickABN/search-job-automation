@@ -6,6 +6,7 @@ import html
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -22,7 +23,7 @@ def _text(value: str, limit: int = 500) -> str:
     return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
 
 
-def _retry_after(response: httpx.Response) -> float:
+def _retry_after(response: httpx.Response) -> float | None:
     value = response.headers.get("Retry-After", "")
     try:
         return max(0.0, min(float(value), _MAX_RETRY_AFTER))
@@ -37,7 +38,20 @@ def _retry_after(response: httpx.Response) -> float:
                 ),
             )
         except (TypeError, ValueError, OverflowError):
-            return 0.0
+            return None
+
+
+def _safe_url(value: str) -> str | None:
+    parsed = urlsplit(value)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return None
+    return value if len(value) <= 1000 else None
+
+
+def _safe_url_text(value: str) -> str:
+    parsed = urlsplit(value)
+    display = value.split(":", 1)[1] if parsed.scheme else value
+    return html.escape(_text(display, 200))
 
 
 def render_digest(digest: JobDigest) -> Sequence[str]:
@@ -48,14 +62,19 @@ def render_digest(digest: JobDigest) -> Sequence[str]:
     chunks: list[str] = []
     current = header
     for item in digest.items:
-        reasons = "; ".join(_text(reason, 180) for reason in item.reasons)
+        reasons = "; ".join(_text(reason, 100) for reason in item.reasons[:3])
+        safe_url = _safe_url(item.canonical_url)
+        link = (
+            f'<a href="{html.escape(safe_url, quote=True)}">Open job</a>'
+            if safe_url is not None
+            else _safe_url_text(item.canonical_url)
+        )
         block = (
-            f"\n\n<b>{html.escape(_text(item.title, 250))}</b> · {item.score}/100\n"
-            f"{html.escape(_text(item.company, 150))} · "
-            f"{html.escape(_text(item.role_family, 80))} · "
-            f"{html.escape(_text(item.location, 120))}\n"
-            f"{html.escape(reasons)}\n<a href=\""
-            f"{html.escape(item.canonical_url, quote=True)}\">Open job</a>"
+            f"\n\n<b>{html.escape(_text(item.title, 180))}</b> · {item.score}/100\n"
+            f"{html.escape(_text(item.company, 100))} · "
+            f"{html.escape(_text(item.role_family, 50))} · "
+            f"{html.escape(_text(item.location, 80))}\n"
+            f"{html.escape(reasons)}\n{link}"
         )
         if len(current) + len(block) > SAFE_MESSAGE and current != header:
             chunks.append(current)
@@ -64,7 +83,7 @@ def render_digest(digest: JobDigest) -> Sequence[str]:
             current += block
     chunks.append(current)
     if any(len(part) > MAX_MESSAGE for part in chunks):
-        raise ValueError("rendered Telegram part exceeds 4096 characters")
+        raise AssertionError("bounded renderer produced an oversized part")
     return tuple(chunks)
 
 
@@ -106,7 +125,7 @@ class TelegramGateway:
                         "parse_mode": "HTML",
                     },
                 )
-            except httpx.ConnectError as error:
+            except (httpx.ConnectError, httpx.PoolTimeout) as error:
                 if attempt == 3:
                     raise DeliveryError(
                         DeliveryState.PERMANENT_FAILED, "connect_failed"
@@ -127,13 +146,16 @@ class TelegramGateway:
                 )
             except ValueError:
                 data = {}
-            if response.status_code == 429 or response.status_code >= 500:
+            if response.status_code == 429:
                 if attempt == 3:
                     raise DeliveryError(
                         DeliveryState.PERMANENT_FAILED, "provider_retry_exhausted"
                     )
-                await self._sleep(_retry_after(response) or 2**attempt)
+                retry_after = _retry_after(response)
+                await self._sleep(2**attempt if retry_after is None else retry_after)
                 continue
+            if response.status_code >= 500:
+                raise DeliveryError(DeliveryState.UNCERTAIN, "provider_5xx")
             if response.is_error or data.get("ok") is not True:
                 raise DeliveryError(DeliveryState.PERMANENT_FAILED, "provider_rejected")
             message_id = data.get("result", {}).get("message_id")

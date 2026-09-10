@@ -41,7 +41,7 @@ async def _run(args: argparse.Namespace) -> int:
     local_date = args.date or now.date()
     slot = DigestSlot(args.slot)
     database = Database(settings.database_url)
-    gateway = TelegramGateway(settings.telegram_bot_token, settings.telegram_chat_id)
+    gateway: TelegramGateway | None = None
     try:
         digest = await PrepareDigest(
             lambda: cast(
@@ -52,6 +52,15 @@ async def _run(args: argparse.Namespace) -> int:
             settings.digest_min_score if args.min_score is None else args.min_score,
             settings.digest_max_jobs if args.max_jobs is None else args.max_jobs,
         ).execute(local_date, slot, now.astimezone())
+        if digest.status.value == "empty":
+            print(
+                f"digest status=noop slot={slot.value} "
+                f"date={local_date.isoformat()} items=0"
+            )
+            return 0
+        gateway = TelegramGateway(
+            settings.telegram_bot_token, settings.telegram_chat_id
+        )
         async with SqlAlchemyDeliveryUnitOfWork(database.session_factory()) as work:
             result = await DeliverDigest(
                 work.delivery, gateway, utc_now, render_digest
@@ -60,9 +69,10 @@ async def _run(args: argparse.Namespace) -> int:
             f"digest status={result.value} slot={slot.value} "
             f"date={local_date.isoformat()} items={len(digest.items)}"
         )
-        return 0 if result.value == "sent" else 2
+        return 0 if result.value in {"sent", "noop"} else 2
     finally:
-        await gateway.aclose()
+        if gateway is not None:
+            await gateway.aclose()
         await database.dispose()
 
 
