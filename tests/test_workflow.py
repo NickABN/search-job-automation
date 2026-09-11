@@ -23,7 +23,7 @@ def _step_positions(workflow: str) -> list[int]:
         "Resolve digest slot",
         "Wait for Neon PostgreSQL readiness",
         "Apply database migrations",
-        "Ingest Bitso Greenhouse jobs",
+        "Ingest configured Greenhouse jobs",
         "Rank top jobs",
         "Send resolved digest",
     ]
@@ -94,6 +94,6 @@ def test_production_workflow_orders_pipeline_steps_and_pins_actions() -> None:
         "3d3c42e5aac5ba805825da76410c181273ba90b1",
         "5fda3b95a4ea91299a34e894583c3862153e4b97",
     ]
-    assert "--board-token bitso --company Bitso" in workflow
+    assert "run: greenhouse-ingest" in workflow
     assert "rank-jobs --limit 20" in workflow
     assert 'send-job-digest --slot "$DIGEST_SLOT"' in workflow

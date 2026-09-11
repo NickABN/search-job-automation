@@ -14,6 +14,8 @@ class RoleFamily(StrEnum):
     FULL_STACK = "full_stack"
     MOBILE = "mobile"
     DATA_AI = "data_ai"
+    DATA_ENGINEER = "data_engineer"
+    DATA_ANALYST = "data_analyst"
     OTHER = "other"
 
 
@@ -23,6 +25,7 @@ class Seniority(StrEnum):
     MID = "mid"
     SENIOR = "senior"
     STAFF = "staff"
+    LEAD = "lead"
     PRINCIPAL = "principal"
     MANAGER = "manager"
     DIRECTOR = "director"
@@ -54,12 +57,13 @@ _ALIASES: dict[RoleFamily, tuple[str, ...]] = {
     RoleFamily.FULL_STACK: ("full stack", "full-stack", "fullstack"),
     RoleFamily.MOBILE: ("mobile", "android", "ios", "flutter", "react native"),
     RoleFamily.DATA_AI: (
-        "data engineer",
         "data scientist",
         "machine learning",
         "ml engineer",
         "artificial intelligence",
     ),
+    RoleFamily.DATA_ENGINEER: ("data engineer", "analytics engineer"),
+    RoleFamily.DATA_ANALYST: ("data analyst", "business intelligence analyst"),
 }
 _SKILLS = (
     "python",
@@ -93,9 +97,10 @@ class RankingProfile:
     version: str = "1"
     role_families: tuple[RoleFamily, ...] = (
         RoleFamily.BACKEND,
-        RoleFamily.FRONTEND,
         RoleFamily.FULL_STACK,
         RoleFamily.MOBILE,
+        RoleFamily.DATA_ENGINEER,
+        RoleFamily.DATA_ANALYST,
     )
     skills: tuple[str, ...] = (
         "python",
@@ -229,6 +234,8 @@ def _title_role(title: str) -> RoleFamily:
         RoleFamily.MOBILE,
         RoleFamily.BACKEND,
         RoleFamily.FRONTEND,
+        RoleFamily.DATA_ENGINEER,
+        RoleFamily.DATA_ANALYST,
         RoleFamily.DATA_AI,
     ):
         if any(_has_phrase(title, alias) for alias in _ALIASES[candidate]):
@@ -285,7 +292,6 @@ def _description_role(description: str) -> RoleFamily:
     if any(
         _has_phrase(description, signal)
         for signal in (
-            "data engineer",
             "data scientist",
             "machine learning",
             "ml engineer",
@@ -315,9 +321,11 @@ def classify(job: JobListing) -> JobClassification:
         seniority = (
             Seniority.STAFF if _has_phrase(title, "staff") else Seniority.PRINCIPAL
         )
-    elif any(_has_phrase(title, x) for x in ("director", "manager")):
+    elif any(_has_phrase(title, x) for x in ("director", "manager", "lead")):
         seniority = (
             Seniority.DIRECTOR if _has_phrase(title, "director") else Seniority.MANAGER
+            if _has_phrase(title, "manager")
+            else Seniority.LEAD
         )
     elif any(_has_phrase(title, x) for x in ("intern", "internship", "trainee")):
         seniority = Seniority.INTERN
@@ -325,7 +333,7 @@ def classify(job: JobListing) -> JobClassification:
         seniority = Seniority.SENIOR
     elif any(_has_phrase(title, x) for x in ("junior", "jr", "entry level")):
         seniority = Seniority.JUNIOR
-    elif _has_phrase(title, "mid-level") or _has_phrase(title, "mid level"):
+    elif any(_has_phrase(title, x) for x in ("mid", "mid-level", "mid level")):
         seniority = Seniority.MID
     else:
         seniority = Seniority.UNKNOWN
@@ -419,6 +427,21 @@ def _english_points(requirement: str | None, candidate_level: str) -> int:
     return 5 if requirement_rank <= candidate_rank else 2
 
 
+def _requires_portuguese(text: str) -> bool:
+    """Recognize explicit Portuguese proficiency requirements, not mentions."""
+
+    return any(
+        re.search(pattern, text) is not None
+        for pattern in (
+            r"\b(?:portuguese|português)\b.{0,35}\b(?:required|mandatory|fluen(?:t|cy)|proficien(?:t|cy)|speaker)\b",
+            r"\b(?:required|mandatory|fluen(?:t|cy)|proficien(?:t|cy)|speaker)\b.{0,35}\b(?:portuguese|português)\b",
+            r"\bfluente\s+em\s+portugu[eê]s\b",
+            r"\bportugu[eê]s\s+fluente\b",
+            r"\bflu[eê]ncia\s+em\s+portugu[eê]s\s+(?:[ée]\s+)?obrigat[oó]ria\b",
+        )
+    )
+
+
 class RankingPolicy:
     def __init__(self, profile: RankingProfile) -> None:
         self.profile = profile
@@ -428,26 +451,40 @@ class RankingPolicy:
             raise ValueError("now must be timezone-aware")
         c = classify(job)
         exclusions: list[str] = []
-        if c.seniority in (
-            Seniority.INTERN,
-            Seniority.STAFF,
-            Seniority.PRINCIPAL,
-            Seniority.MANAGER,
-            Seniority.DIRECTOR,
+        if c.role_family in (RoleFamily.DATA_ENGINEER, RoleFamily.DATA_ANALYST) and (
+            c.seniority not in (Seniority.JUNIOR, Seniority.UNKNOWN)
+            or c.years_required is not None
+            and c.years_required >= 4
         ):
-            exclusions.append(f"Excluded seniority: {c.seniority.value}.")
+            exclusions.append(
+                "Data roles require junior or unspecified seniority."
+            )
         if c.years_required is not None and c.years_required >= 6:
             exclusions.append("Explicit requirement of 6 or more years.")
         if c.english_requirement in ("native", "c2"):
             exclusions.append("Native or C2 English is mandatory.")
+        policy_text = _text(job)
+        if _requires_portuguese(policy_text):
+            exclusions.append("Portuguese proficiency is explicitly required.")
         if c.role_family is RoleFamily.OTHER:
             exclusions.append("Role family is outside the supported ranking scope.")
         elif (
             c.role_family not in self.profile.role_families
-            and c.role_family is not RoleFamily.DATA_AI
         ):
             exclusions.append("Role family is outside the configured target roles.")
         location = (job.location_text or "").casefold()
+        brazil_only = bool(
+            re.search(
+                r"\b(?:brazil|brasil)\b|\b(?:in|from|based|located|reside|residency|residents?\s+of)\s+(?:brazil|brasil)\b",
+                location,
+            )
+            or re.search(
+                r"\b(?:brazil|brasil)\s+only\b|\b(?:must|needs?\s+to)\s+(?:be\s+)?(?:located|based|reside|live)\s+in\s+(?:brazil|brasil)\b|\b(?:residents?|candidates?)\s+of\s+(?:brazil|brasil)\b",
+                job.description.casefold(),
+            )
+        )
+        if brazil_only:
+            exclusions.append("Role is restricted to Brazil residency or location.")
         if c.work_model is WorkModel.ONSITE and not any(
             _has_phrase(location, x) for x in self.profile.allowed_onsite_hybrid_cities
         ):
@@ -484,8 +521,6 @@ class RankingPolicy:
         role_points = (
             ROLE_MAX["role"]
             if c.role_family in self.profile.role_families
-            else DATA_AI_SECONDARY_POINTS
-            if c.role_family is RoleFamily.DATA_AI
             else 0
         )
         target_skill_count = len(set(c.matched_skills) & set(self.profile.skills))

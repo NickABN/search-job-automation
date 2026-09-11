@@ -88,8 +88,30 @@ def test_data_ai_is_secondary_when_not_a_primary_target() -> None:
         job("Data Scientist", "Python and machine learning"), NOW
     )
     assert evaluation.classification.role_family is RoleFamily.DATA_AI
-    assert evaluation.factors[0].points == 10
-    assert evaluation.eligible
+    assert evaluation.factors[0].points == 0
+    assert not evaluation.eligible
+
+
+def test_default_greenhouse_registry_and_target_roles() -> None:
+    settings = Settings(_env_file=None)
+    assert [
+        (board.board_token, board.company) for board in settings.greenhouse_boards
+    ] == [
+        ("bitso", "Bitso"),
+        ("wizeline", "Wizeline"),
+        ("clara", "Clara"),
+        ("remotecom", "Remote"),
+        ("gitlab", "GitLab"),
+        ("airbnb", "Airbnb"),
+        ("ebanx", "EBANX"),
+    ]
+    assert settings.ranking_profile().role_families == (
+        RoleFamily.BACKEND,
+        RoleFamily.FULL_STACK,
+        RoleFamily.MOBILE,
+        RoleFamily.DATA_ENGINEER,
+        RoleFamily.DATA_ANALYST,
+    )
 
 
 @pytest.mark.parametrize(

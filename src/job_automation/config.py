@@ -1,8 +1,27 @@
 from functools import lru_cache
 
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from job_automation.domain.ranking import RankingProfile, RoleFamily
+
+
+class GreenhouseBoard(BaseModel):
+    """Public Greenhouse board configuration."""
+
+    board_token: str
+    company: str
+
+
+DEFAULT_GREENHOUSE_BOARDS = (
+    GreenhouseBoard(board_token="bitso", company="Bitso"),
+    GreenhouseBoard(board_token="wizeline", company="Wizeline"),
+    GreenhouseBoard(board_token="clara", company="Clara"),
+    GreenhouseBoard(board_token="remotecom", company="Remote"),
+    GreenhouseBoard(board_token="gitlab", company="GitLab"),
+    GreenhouseBoard(board_token="airbnb", company="Airbnb"),
+    GreenhouseBoard(board_token="ebanx", company="EBANX"),
+)
 
 
 class Settings(BaseSettings):
@@ -16,11 +35,13 @@ class Settings(BaseSettings):
     digest_timezone: str = "America/Mexico_City"
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    greenhouse_boards: tuple[GreenhouseBoard, ...] = DEFAULT_GREENHOUSE_BOARDS
     ranking_target_role_families: tuple[str, ...] = (
         "backend",
-        "frontend",
         "full_stack",
         "mobile",
+        "data_engineer",
+        "data_analyst",
     )
     ranking_target_skills: tuple[str, ...] = (
         "Python",
