@@ -33,15 +33,18 @@ and `TELEGRAM_CHAT_ID`.
 
 | Local Mexico City slot | GitHub Actions UTC schedule |
 | --- | --- |
-| 09:00 morning | `0 15 * * *` |
-| 18:00 evening | `0 0 * * *` |
+| 08:00 morning | `0 14 * * *` |
+| 12:00 midday | `0 18 * * *` |
+| 17:00 evening | `0 23 * * *` |
 
 GitHub schedules are best-effort and may be delayed. The workflow resolves the
 slot explicitly and the command derives the local date using
 `America/Mexico_City`. The bounded readiness step allows Neon to wake before
-migrations run. Use **Run workflow** with the `morning` or `evening` choice for
-a manual run. To pause production, disable the workflow; to roll back, revert
-this workflow and the readiness command, then re-enable the prior revision.
+migrations run. Each scheduled run ingests configured Greenhouse jobs, ranks them,
+and sends the resolved digest through Telegram. Use **Run workflow** with the
+`morning`, `midday`, or `evening` choice for a manual run. To pause production,
+disable the workflow; to roll back, revert the workflow and migration changes,
+then re-enable the prior revision.
 
 The workflow is the production boundary: it has read-only repository
 permissions, a single non-canceling concurrency group, and no pull-request
@@ -123,7 +126,7 @@ Board API](https://docs.greenhouse.io/job-board.html).
 
 ## Job digests
 
-A digest is keyed by `{local_date}:{slot}` (`morning` or `evening`) in the
+A digest is keyed by `{local_date}:{slot}` (`morning`, `midday`, or `evening`) in the
 configured `America/Mexico_City` timezone. Preparation runs at most once for a
 key, selects current eligible evaluations at or above `DIGEST_MIN_SCORE` (60 by
 default), orders ties deterministically, and stores job fields and reasons as an
@@ -131,10 +134,10 @@ immutable snapshot. Empty digests are persisted as explicit no-ops. Prepared,
 sending, and sent items are excluded from later slots, so retries resume work
 without claiming a job twice.
 
-The 09:00/18:00 scheduler and Telegram transport are intentionally deferred to
-the notification branch. Before a scheduler exists, delivery is explicit:
-`.venv\\Scripts\\send-job-digest.exe --slot morning`. Empty digests are
-successful no-ops and do not require Telegram credentials. Telegram uses the
+The 08:00/12:00/17:00 GitHub Actions scheduler and Telegram transport are deployed
+as part of the production pipeline. For an explicit local or operational run, use
+`.venv\\Scripts\\send-job-digest.exe --slot morning`. Empty digests are successful
+no-ops and do not require Telegram credentials. Telegram uses the
 official Bot API `sendMessage` endpoint and environment-only credentials. Never
 share or commit the bot token. Delivery is resumable for confirmed sent parts,
 but a persisted sending state, post-dispatch timeout, or HTTP 5xx is deliberately
@@ -142,6 +145,11 @@ marked uncertain: Telegram offers no caller idempotency key, so the command uses
 a conservative at-most-once bias and does not claim exactly-once delivery.
 All operational timestamps are UTC-aware; the local date and slot remain
 explicit database columns.
+
+Migration rollback from `0005_midday_digest_slot` to `0004_telegram_delivery` is
+valid only when `job_digests` contains no persisted `midday` rows. PostgreSQL
+intentionally rejects recreation of the older slot constraint while such rows
+exist. Do not silently delete digest data to satisfy this precondition.
 
 ## Current non-goals
 

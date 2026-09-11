@@ -149,7 +149,9 @@ class JobDigestModel(Base):
     __table_args__ = (
         UniqueConstraint("local_date", "slot", name="uq_job_digests_key"),
         Index("ix_job_digests_selection", "local_date", "status"),
-        CheckConstraint("slot IN ('morning', 'evening')", name="ck_job_digests_slot"),
+        CheckConstraint(
+            "slot IN ('morning', 'midday', 'evening')", name="ck_job_digests_slot"
+        ),
         CheckConstraint(
             "status IN ('empty', 'prepared', 'sending', 'sent', 'failed', 'uncertain')",
             name="ck_job_digests_status",
