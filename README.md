@@ -24,6 +24,30 @@ Automation can use `wait-for-database` before migrations. It performs bounded
 retries with a per-attempt timeout and never prints connection details; its
 defaults are 6 attempts, 5 seconds, and a 2-second delay.
 
+## Production scheduled pipeline
+
+GitHub Actions runs the zero-cost production pipeline: Neon Free PostgreSQL,
+public Bitso Greenhouse ingestion, ranking, and Telegram delivery. Configure
+only these repository Actions secrets: `DATABASE_URL`, `TELEGRAM_BOT_TOKEN`,
+and `TELEGRAM_CHAT_ID`.
+
+| Local Mexico City slot | GitHub Actions UTC schedule |
+| --- | --- |
+| 09:00 morning | `0 15 * * *` |
+| 18:00 evening | `0 0 * * *` |
+
+GitHub schedules are best-effort and may be delayed. The workflow resolves the
+slot explicitly and the command derives the local date using
+`America/Mexico_City`. The bounded readiness step allows Neon to wake before
+migrations run. Use **Run workflow** with the `morning` or `evening` choice for
+a manual run. To pause production, disable the workflow; to roll back, revert
+this workflow and the readiness command, then re-enable the prior revision.
+
+The workflow is the production boundary: it has read-only repository
+permissions, a single non-canceling concurrency group, and no pull-request
+secret execution. It does not provision a web service or include provider
+credentials in command arguments.
+
 ## Architecture boundaries
 
 | Boundary | Responsibility |
@@ -146,7 +170,9 @@ candidate, while native/C2 requirements remain hard exclusions.
 Salary is normalized only for explicit MXN monthly or annual evidence; foreign
 currencies and bare-dollar values remain neutral until a reviewed conversion
 provider is added. Unknown location, salary, English, and recency are not hard
-exclusions. No LLM, embeddings, vector database, scheduler, Telegram,
-automatic applications, currency-rate provider, or frontend is included.
+exclusions. The production scheduler and Telegram delivery are provided by the
+GitHub Actions workflow described above. LLMs, embeddings, vector databases,
+automatic applications, currency-rate providers, and frontends remain out of
+scope.
 
 This work unit does not include Lever or cross-source fuzzy deduplication.
