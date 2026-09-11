@@ -74,8 +74,8 @@ jobs:
       - name: Apply database migrations
         run: python -m alembic upgrade head
 
-      - name: Ingest Bitso Greenhouse jobs
-        run: greenhouse-ingest --board-token bitso --company Bitso
+      - name: Ingest configured Greenhouse jobs
+        run: greenhouse-ingest
 
       - name: Rank top jobs
         run: rank-jobs --limit 20

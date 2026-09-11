@@ -27,7 +27,7 @@ defaults are 6 attempts, 5 seconds, and a 2-second delay.
 ## Production scheduled pipeline
 
 GitHub Actions runs the zero-cost production pipeline: Neon Free PostgreSQL,
-public Bitso Greenhouse ingestion, ranking, and Telegram delivery. Configure
+configured public Greenhouse ingestion, ranking, and Telegram delivery. Configure
 only these repository Actions secrets: `DATABASE_URL`, `TELEGRAM_BOT_TOKEN`,
 and `TELEGRAM_CHAT_ID`.
 
@@ -94,7 +94,8 @@ its PostgreSQL service. Ranking profile values use Pydantic JSON arrays for
 role families, skills, and allowed onsite/hybrid cities:
 
 ```dotenv
-RANKING_TARGET_ROLE_FAMILIES=["backend","frontend","full_stack","mobile"]
+GREENHOUSE_BOARDS=[{"board_token":"bitso","company":"Bitso"},{"board_token":"wizeline","company":"Wizeline"}]
+RANKING_TARGET_ROLE_FAMILIES=["backend","full_stack","mobile","data_engineer","data_analyst"]
 RANKING_TARGET_SKILLS=["Python","FastAPI","Java","Spring Boot","Flutter","React","Vue"]
 RANKING_ENGLISH_LEVEL=B2
 RANKING_ALLOWED_CITIES=["Morelia","Guadalajara","Queretaro"]
@@ -105,17 +106,20 @@ ranking; skills and city names are normalized case-insensitively.
 
 ## Manual Greenhouse ingestion
 
-After the database is running and migrated, ingest one public board:
+After the database is running and migrated, ingest all configured public boards:
 
 ```powershell
-.venv\Scripts\python.exe -m job_automation.presentation.cli --board-token greenhouse --company "Greenhouse"
+.venv\Scripts\python.exe -m job_automation.presentation.cli
 ```
 
-`--board-token` is a validated Greenhouse board identifier, not a secret. The
-company name is explicit configuration because the listing API does not provide
-a reliable company field. The adapter calls the official public endpoint once
-with `content=true`, preserves each raw job JSON object, and leaves publication
-time unknown. See the [official Greenhouse Job Board API](https://docs.greenhouse.io/job-board.html).
+The default registry contains Bitso, Wizeline, Clara, Remote, GitLab, Airbnb,
+and EBANX. Override it with the typed `GREENHOUSE_BOARDS` JSON setting when
+needed. Board tokens are public identifiers, not secrets. For one-off use, the
+legacy `--board-token TOKEN --company NAME` pair remains supported. Each board
+has its own provider-qualified ingestion run. A failed board is reported safely
+and does not prevent successful boards from being ranked; the command exits
+nonzero only when every configured board fails. See the [official Greenhouse Job
+Board API](https://docs.greenhouse.io/job-board.html).
 
 ## Job digests
 

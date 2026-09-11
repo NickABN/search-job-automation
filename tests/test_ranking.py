@@ -59,7 +59,7 @@ def test_native_and_c2_exclude_but_c1_is_eligible_with_penalty() -> None:
 
 @pytest.mark.parametrize(
     "title",
-    ["Manager Backend Engineer", "Staff Backend Engineer", "Intern Backend Engineer"],
+    ["Manager Data Engineer", "Staff Data Analyst", "Intern Data Engineer"],
 )
 def test_title_seniority_is_hard_excluded(title: str) -> None:
     assert not RankingPolicy(RankingProfile()).evaluate(job(title), NOW).eligible
@@ -183,8 +183,79 @@ def test_data_ai_remains_secondary_affinity_when_not_primary() -> None:
         job("Data Scientist", "Python and machine learning"), NOW
     )
     assert evaluation.classification.role_family is RoleFamily.DATA_AI
-    assert evaluation.factors[0].points == 10
+    assert evaluation.factors[0].points == 0
+    assert not evaluation.eligible
+
+
+@pytest.mark.parametrize("title", ["Junior Data Engineer", "Data Analyst"])
+def test_target_data_roles_allow_junior_or_unknown_seniority(title: str) -> None:
+    assert RankingPolicy(RankingProfile()).evaluate(job(title, "Python"), NOW).eligible
+
+
+@pytest.mark.parametrize("title", ["Mid Data Engineer", "Senior Data Analyst"])
+def test_target_data_roles_exclude_explicit_higher_seniority(title: str) -> None:
+    assert not RankingPolicy(RankingProfile()).evaluate(job(title), NOW).eligible
+
+
+@pytest.mark.parametrize(
+    "title",
+    ["Staff Backend Engineer", "Lead Full Stack Engineer", "Manager Mobile Engineer"],
+)
+def test_non_data_role_seniority_is_not_excluded_by_data_rule(title: str) -> None:
+    evaluation = RankingPolicy(RankingProfile()).evaluate(job(title), NOW)
     assert evaluation.eligible
+    assert not any("Data roles" in reason for reason in evaluation.exclusion_reasons)
+
+
+@pytest.mark.parametrize("title", ["Intern Data Engineer", "Trainee Data Analyst"])
+def test_intern_and_trainee_data_roles_are_excluded(title: str) -> None:
+    evaluation = RankingPolicy(RankingProfile()).evaluate(job(title), NOW)
+    assert not evaluation.eligible
+    assert "junior, intern" not in " ".join(evaluation.exclusion_reasons).lower()
+
+
+@pytest.mark.parametrize("title", ["Junior Data Engineer", "Data Analyst"])
+def test_junior_and_unknown_data_roles_remain_eligible(title: str) -> None:
+    assert RankingPolicy(RankingProfile()).evaluate(job(title), NOW).eligible
+
+
+def test_frontend_is_not_a_default_target() -> None:
+    assert not RankingPolicy(RankingProfile()).evaluate(
+        job("Frontend Engineer", "React"), NOW
+    ).eligible
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Portuguese required; work in English",
+        "fluente em português",
+        "português fluente",
+        "fluência em português obrigatória",
+    ],
+)
+def test_explicit_portuguese_requirements_are_excluded(description: str) -> None:
+    assert not RankingPolicy(RankingProfile()).evaluate(
+        job("Backend Engineer", description), NOW
+    ).eligible
+
+
+@pytest.mark.parametrize(
+    ("description", "location", "eligible"),
+    [
+        ("The team writes documentation in Portuguese", "Remote Mexico", True),
+        ("Build products for Brazilian customers", "Remote Mexico", True),
+        ("Portuguese language posting", "Remote Mexico", True),
+        ("Backend engineer", "Brazil", False),
+        ("Must reside in Brazil", "Remote", False),
+    ],
+)
+def test_portuguese_mentions_and_brazil_exclusions_remain_conservative(
+    description: str, location: str, eligible: bool
+) -> None:
+    assert RankingPolicy(RankingProfile()).evaluate(
+        job("Backend Engineer", description, location), NOW
+    ).eligible is eligible
 
 
 @pytest.mark.parametrize(
@@ -285,8 +356,7 @@ def test_bare_dollar_and_foreign_currency_are_neutral() -> None:
 @pytest.mark.parametrize(
     ("title", "description"),
     [
-        ("Backend Intern", ""),
-        ("Staff Backend Engineer", ""),
+        ("Staff Data Analyst", ""),
         ("Backend Engineer", "native English required"),
         ("Backend Engineer", "6+ years experience"),
     ],
