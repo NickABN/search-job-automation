@@ -20,6 +20,10 @@ docker compose up -d app
 Check `GET /health` for liveness and `GET /ready` for PostgreSQL readiness.
 Stop local services with `docker compose down`.
 
+Automation can use `wait-for-database` before migrations. It performs bounded
+retries with a per-attempt timeout and never prints connection details; its
+defaults are 6 attempts, 5 seconds, and a 2-second delay.
+
 ## Architecture boundaries
 
 | Boundary | Responsibility |
