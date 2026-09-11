@@ -91,8 +91,8 @@ def test_production_workflow_orders_pipeline_steps_and_pins_actions() -> None:
     assert re.findall(
         r"uses: actions/[^@]+@([0-9a-f]{40})$", workflow, re.MULTILINE
     ) == [
-        "11bd71901bbe5b1630ceea73d27597364c9af683",
-        "a26af69be951a213d495a4c3e4e4022e16d87065",
+        "3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "5fda3b95a4ea91299a34e894583c3862153e4b97",
     ]
     assert "--board-token bitso --company Bitso" in workflow
     assert "rank-jobs --limit 20" in workflow
