@@ -122,16 +122,19 @@ async def test_same_key_reuses_immutable_snapshot(database: Database) -> None:
 async def test_empty_and_later_slot_exclusion(database: Database) -> None:
     await _seed(database, 1)
     morning = await _prepare(database, DigestSlot.MORNING)
+    midday = await _prepare(database, DigestSlot.MIDDAY)
     evening = await _prepare(database, DigestSlot.EVENING)
     assert morning.status is DigestStatus.PREPARED
+    assert midday.status is DigestStatus.EMPTY
     assert evening.status is DigestStatus.EMPTY
 
 
 async def test_concurrent_slots_claim_one_job(database: Database) -> None:
     await _seed(database, 1)
 
-    first, second = await asyncio.gather(
+    first, second, third = await asyncio.gather(
         _prepare(database, DigestSlot.MORNING),
+        _prepare(database, DigestSlot.MIDDAY),
         _prepare(database, DigestSlot.EVENING),
     )
-    assert sorted((len(first.items), len(second.items))) == [0, 1]
+    assert sorted((len(first.items), len(second.items), len(third.items))) == [0, 0, 1]

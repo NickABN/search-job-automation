@@ -7,6 +7,7 @@ from enum import StrEnum
 
 class DigestSlot(StrEnum):
     MORNING = "morning"
+    MIDDAY = "midday"
     EVENING = "evening"
 
 

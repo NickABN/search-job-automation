@@ -9,6 +9,7 @@ from job_automation.domain.digests import (
     DigestStatus,
     JobDigest,
 )
+from job_automation.presentation.digest_cli import _parser
 
 AT = datetime(2026, 9, 10, 15, tzinfo=UTC)
 
@@ -34,6 +35,24 @@ def test_digest_validates_invariants_and_transitions() -> None:
     assert digest.transition(DigestStatus.SENDING).status is DigestStatus.SENDING
     with pytest.raises(ValueError):
         digest.transition(DigestStatus.SENT)
+
+
+def test_digest_slots_have_distinct_idempotency_keys() -> None:
+    keys = {
+        JobDigest(
+            "d", date(2026, 9, 10), slot, AT, DigestStatus.EMPTY, ()
+        ).idempotency_key
+        for slot in DigestSlot
+    }
+    assert keys == {
+        "2026-09-10:morning",
+        "2026-09-10:midday",
+        "2026-09-10:evening",
+    }
+
+
+def test_digest_cli_exposes_midday_slot() -> None:
+    assert _parser().parse_args(["--slot", "midday"]).slot == "midday"
 
 
 def test_empty_digest_is_explicit() -> None:

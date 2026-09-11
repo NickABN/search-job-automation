@@ -41,14 +41,17 @@ def test_production_workflow_has_only_trusted_triggers_and_exact_mapping() -> No
         "jobs",
     }
     assert "  schedule:" in workflow
-    assert '    - cron: "0 15 * * *"' in workflow
-    assert '    - cron: "0 0 * * *"' in workflow
+    assert '    - cron: "0 14 * * *"' in workflow
+    assert '    - cron: "0 18 * * *"' in workflow
+    assert '    - cron: "0 23 * * *"' in workflow
     assert "  workflow_dispatch:" in workflow
     assert "type: choice" in workflow
     assert "          - morning" in workflow
+    assert "          - midday" in workflow
     assert "          - evening" in workflow
-    assert '"0 15 * * *") slot=morning' in workflow
-    assert '"0 0 * * *") slot=evening' in workflow
+    assert '"0 14 * * *") slot=morning' in workflow
+    assert '"0 18 * * *") slot=midday' in workflow
+    assert '"0 23 * * *") slot=evening' in workflow
     assert '*) echo "Unsupported schedule event" >&2; exit 1 ;;' in workflow
     assert all(
         trigger not in workflow
